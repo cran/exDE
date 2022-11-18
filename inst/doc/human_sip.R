@@ -1,0 +1,55 @@
+## ---- include = FALSE---------------------------------------------------------
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+
+## ---- message=FALSE, warning=FALSE--------------------------------------------
+library(exDE)
+library(deSolve)
+library(data.table)
+library(ggplot2)
+
+## ---- out.width = "100%"------------------------------------------------------
+nStrata <- 3
+H <- c(100, 500, 250)
+X <- c(20, 120, 80)
+b <- 0.55
+c <- 0.15
+r <- 1/200
+eta <- c(1/30, 1/40, 1/35)
+rho <- c(0.05, 0.1, 0.15)
+Psi <- matrix(data = 1,nrow = 1, ncol = nStrata)
+
+P <- diag(1/eta) %*% diag(rho/(1-rho)) %*% (r*X)
+EIR <- diag(1/b, nStrata) %*% diag(1/(1-rho)) %*% ((r*X)/(H-X-P))
+
+params <- list(
+  nStrata = nStrata
+)
+params <- list2env(params)
+
+make_parameters_X_SIP(pars = params, b = b, c = c, r = r, rho = rho, eta = eta, Psi = Psi, X0 = X, P0 = as.vector(P), H = H)
+make_indices(params)
+
+y0 <- rep(0, 6)
+y0[params$X_ix] <- X
+y0[params$P_ix] <- P
+
+out <- deSolve::ode(y = y0, times = c(0, 365), func = function(t, y, pars, EIR) {
+  list(dXdt(t, y, pars, EIR))
+}, parms = params, method = 'lsoda', EIR = as.vector(EIR))
+
+colnames(out)[params$X_ix+1] <- paste0('X_', 1:params$nStrata)
+colnames(out)[params$P_ix+1] <- paste0('P_', 1:params$nStrata)
+
+out <- as.data.table(out)
+out <- melt(out, id.vars = 'time')
+out[, c("Component", "Strata") := tstrsplit(variable, '_', fixed = TRUE)]
+out[, variable := NULL]
+
+ggplot(data = out, mapping = aes(x = time, y = value, color = Strata)) +
+  geom_line() +
+  facet_wrap(. ~ Component, scales = 'free') +
+  theme_bw()
+
